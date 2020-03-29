@@ -1,2 +1,0 @@
-# PNAvatar
-pn + eg -> avatar
