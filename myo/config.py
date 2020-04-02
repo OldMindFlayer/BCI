@@ -19,7 +19,7 @@ def config_init(argv):
         if '-debug' in argv:
             config['general']['debug_mode'] = 'true'
         else:
-            config['general']['debug_mode'] = 'true'
+            config['general']['debug_mode'] = 'false'
 
     
     # Path autogeneration ignores path in config and generate path based on location of 'main.py'
@@ -31,7 +31,7 @@ def config_init(argv):
         
     # Date and time autogeneration ignores values in config and generate them based on current date and time
     if  config['general'].getboolean('date_time_autogeneration'):
-        config['patient_info']['patient_date'] = time.strftime('%d_%m_%y')
+        config['patient_info']['patient_date'] = time.strftime('%y_%m_%d')
         config['patient_info']['patient_time'] = time.strftime('%H%M%S')
     
     

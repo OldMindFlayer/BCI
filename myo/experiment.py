@@ -8,6 +8,7 @@ Created on Wed Mar 25 12:29:53 2020
 import h5py
 import pylsl
 import numpy as np
+import time
 
 class Experiment():
     def __init__(self, config, dtype = 'float64'):
@@ -17,11 +18,9 @@ class Experiment():
         self.inlet_amp = self._connent_LSL_strams(config['general']['lsl_stream_name_amp'], 3)
         self.inlet_amp_info = self._stream_info(self.inlet_amp)
 
-        
         self.inlet_pn = self._connent_LSL_strams(config['general']['lsl_stream_name_pn'], 3)
         self.inlet_pn_info = self._stream_info(self.inlet_pn)
 
-        
         assert self.inlet_amp_info['n_channels'] == self.config['general'].getint('n_channels_amp'), 'wrong n_channels_amp'
         assert self.inlet_amp_info['fs'] == self.config['general'].getint('fs_amp'), 'wrong fs_amp'
         assert self.inlet_pn_info['n_channels'] == self.config['general'].getint('n_channels_pn'), 'wrong n_channels_pn'
@@ -29,14 +28,13 @@ class Experiment():
         
         self.stacked_data = None
         self.stacked_timestamps = None
+
         
         
     def _connent_LSL_strams(self, name, maxbuffer_size):
         streams = pylsl.resolve_byprop('name', name)
-        #try:
         inlet = pylsl.StreamInlet(streams[0], maxbuffer_size)
-        print('{}: LSL stream \"{}\" resolved'.format(type(self).__name__, name))
-        #except:
+        print('{} {}: LSL stream \"{}\" resolved'.format(time.strftime('%H:%M:%S'), type(self).__name__, name))
         return inlet
         
     def _stream_info(self, inlet):
@@ -66,9 +64,12 @@ class Experiment():
                 if counter // 1000 > curr_count:
                     print('{}: {} samples collected'.format(type(self).__name__, counter))
                     curr_count += 1
+                    
         self.stacked_data = np.vstack(stacked_chunks)
-        self.stacked_timestamps = np.vstack(timestamps)
+        self.stacked_timestamps = np.concatenate(timestamps)
         self._save_data()
+        print('{} {}: data saved:\n{}'.format(time.strftime('%H:%M:%S'), type(self).__name__, self.config['paths']['experiment_data_path']))
+    
     
     def _save_data(self):
         with h5py.File(self.config['paths']['experiment_data_path'], 'w') as file:

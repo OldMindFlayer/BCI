@@ -8,7 +8,7 @@ from threading import Thread
 from experiment import Experiment
 from config import config_init
 from pathlib import Path
-from stream_decode_v2 import Decode
+from stream_decode_v2 import ExperimentRealtime
 import numpy as np
 from matplotlib import pyplot as plt
 
@@ -38,17 +38,15 @@ def main():
     #while True:
     #    time.sleep(3)
 
-    exp = Experiment(config)
-    exp.record_data(config['general'].getint('experiment_time_record'))
-    inlet_amp = exp.get_inlet_amp()
-    inlet_pn = exp.get_inlet_pn()
+    experiment = Experiment(config)
+    experiment.record_data(config['general'].getint('experiment_time_record'))
+    inlet_amp = experiment.get_inlet_amp()
+    inlet_pn = experiment.get_inlet_pn()
     
-    decoder = Decode(config, inlet_amp, inlet_pn)
-    decoder.decode()
- 
+    experiment_realtime = ExperimentRealtime(config, inlet_amp, inlet_pn)
     
-    Pn=np.array([c[1] for c in decoder.get_coordbuff()])
-    Dec=np.array([c[0] for c in decoder.get_coordbuff()])
+    Pn=np.array([c[1] for c in experiment_realtime.get_coordbuff()])
+    Dec=np.array([c[0] for c in experiment_realtime.get_coordbuff()])
 
     for i in range(Pn.shape[1]):
         plt.plot(Pn[1000:,i]+100*i)

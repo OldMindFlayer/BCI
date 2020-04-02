@@ -1,5 +1,5 @@
 from pylsl import StreamInfo, StreamOutlet
-import socket, threading
+import socket, threading, time
 
 
 
@@ -63,12 +63,12 @@ class PN2LSL:
             self.s.connect((self.TCP_IP, self.TCP_PORT))
             return True
         except ConnectionError:
-            print('PN2LSL: ConnectionError, check:\nAxis Neuron -> File -> Settings -> Broadcasting ->')
+            print('{} {}: ConnectionError, check:\nAxis Neuron -> File -> Settings -> Broadcasting ->'.format(time.strftime('%H:%M:%S'), type(self).__name__))
             print('checked BVH, Port: {}, Format: String'.format(self.TCP_PORT))
             return False
 
     def _get_data(self):
-        print('{}: start LSL \"AxisNeuron\"'.format(type(self).__name__))
+        print('{} {}: start LSL \"AxisNeuron\"'.format(time.strftime('%H:%M:%S'), type(self).__name__))
         res = []
         data_full = True
         while True:
@@ -76,7 +76,7 @@ class PN2LSL:
             try:
                 data_in = data_in.decode("utf-8")
             except UnicodeDecodeError:
-                print('PN2LSL: UnicodeDecodeError, check:\nBVH format: String, Axes Neuron version: 3.6.xxx')
+                print('{} {}: UnicodeDecodeError, check:\nBVH format: String, Axes Neuron version: 3.6.xxx'.format(time.strftime('%H:%M:%S'), type(self).__name__))
                 return
             if data_full: #If the previous string was full
                 if data_in.find("C") >= 0: #If there is a sample beginning
@@ -123,11 +123,11 @@ class PN2LSL:
         if self.debug:
             print(numbers[237:240])
         mysample = numbers[216:]
-        assert (len(mysample) == 138), 'PN2LSL: AssertionError, wrong number of samples - {} != 138'.format(len(mysample))
+        assert (len(mysample) == 138), '{} {}: AssertionError, wrong number of samples - {} != 138'.format(time.strftime('%H:%M:%S'), type(self).__name__, len(mysample))
         self.outlet.push_sample(mysample, self.counter/125)
         self.counter += 1
-        if self.counter % 1000 == 0:
-            print('{}: sent {} samples to LSL \"AxisNeuron\"'.format(type(self).__name__, self.counter))
+        if self.counter % 1250 == 0:
+            print('{} {}: sent {} samples to LSL \"AxisNeuron\"'.format(time.strftime('%H:%M:%S'), type(self).__name__, str(self.counter)))
 
 
 

@@ -2,11 +2,10 @@
 """
 Created on Thu Jun 28 18:13:30 2018
 
-@author: Александр
+@author: Александр/AlexVosk
 """
 
 import sys
-from pylsl import StreamInlet, resolve_stream
 import time
 import numpy as np
 import socket
@@ -14,117 +13,137 @@ import struct
 
 
 
-class Decode():
+class ExperimentRealtime():
     def __init__(self, config, inlet_amp, inlet_pn):
         self.config = config
-        sys.path.append(self.config['paths']['root_path'] + '/myo/NEOREC')
-        from EMGdecode import EMGDecoder
-        from EMGfilter import envelopeFilter        
         
+        # lsl inlets
         self.inlet_amp = inlet_amp #myoInlet
         self.inlet_pn = inlet_pn #pnInlet
-        self.exp_time = self.config['general'].getint('experiment_time_realtime')
         
-        # for emulation of stream recieve
-        #debug = False
-        self.fps = 30
-        self.tpf = 1/self.fps
+        # time of realtime experiment (inf if it set to -1)
+        experiment_time = self.config['general'].getint('experiment_time_realtime')
+        self.experiment_time = float('inf') if experiment_time < 0 else experiment_time
+        
+        # params of amp data stream
         self.numCh = self.config['general'].getint('n_channels_amp')
-        self.offCh = self.config['general'].getint('channels_pn_offset')
+        self.offCh = self.numCh
         self.srate = self.config['general'].getint('fs_amp')
-        self.pos = 0
+
+        avatar_freq = self.config['general'].getint('avatar_freq')
+        self.avatar_period = 1 / avatar_freq
+        self.avatar_buffer_size = self.config['general'].getint('avatar_buffer_size')
         
+        # buffer for plotting
         self.coordbuff = []
         
-        #PN channels for finger joints
-        self.fingersrange = np.array([59,77,101,125])
-        #avatar channels for finger joints
-        self.fsendrange = np.array([14,23,32,41])
         
-        #technical variables
-        self.avatarBuffer = np.zeros(96)
-        self.pnbuff = np.zeros((len(self.fingersrange)))
+        # PN channels for finger joints
+        self.pn_fingers_range = np.asarray(list(map(int, self.config['general']['pn_fingers_range'].split())))
+        # avatar channels for finger joints
+        self.avatar_fingers_range = np.asarray(list(map(int, self.config['general']['avatar_fingers_range'].split())))
+        
+        # buffer
+        self.avatar_buffer = np.zeros(self.avatar_buffer_size)
         
         
-        #initializing Avatar connection
+        # initializing Avatar connection
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.server_address = ('127.0.0.1', 12001)
         self.client_address = ('127.0.0.1', 9001)
-        print('starting up on {} port {}'.format(*self.server_address))
-        
         self.sock.bind(self.server_address)
+        print('{} {}: UDP from {} {} established'.format(time.strftime('%H:%M:%S'), type(self).__name__, *self.server_address))
 
-        self.emgdecoder = EMGDecoder()
-        self.emgdecoder.fit(X=None,Y=None,
-                            file=self.config['paths']['experiment_data_path'],
-                            numCh=self.numCh, offCh=64, 
-                            Pn=[59,77,101,125], 
-                            lag=2,forward=0,
-                            downsample=0)
-        self.emgfilter=envelopeFilter()
+        # fit the model and initialize filter
+        print('{} {}: fitting...'.format(time.strftime('%H:%M:%S'), type(self).__name__))
+        self.decoder, self.filter = self._fit()
+        print('{} {}: decoding...'.format(time.strftime('%H:%M:%S'), type(self).__name__))
+        self.decode()
+        
+        
+    # fit data from file
+    def _fit(self):
+        # load Decoder and Filter from NEOREC
+        sys.path.append(self.config['paths']['root_path'] + '/MyoDecode/NEOREC')
+        from EMGdecode import EMGDecoder
+        from EMGfilter import envelopeFilter
+        
+        # fit the model from file and initialize filter
+        emgdecoder = EMGDecoder()
+        emgdecoder.fit(X = None, Y = None, 
+                       file=self.config['paths']['experiment_data_path'], 
+                       numCh = self.numCh, offCh = self.offCh, 
+                       Pn = self.pn_fingers_range, 
+                       lag = 2, forward = 0, downsample = 0)
+        emgfilter = envelopeFilter()
+        return emgdecoder, emgfilter
         
     
+    # decode realtime data
     def decode(self):
+        # initialize pn_buffer and KalmanCoords
+        pn_buffer = np.zeros(len(self.pn_fingers_range))
+        KalmanCoords = np.zeros((1, self.numCh))
+        
+        # get chunks, decode and sent to avatar
         start_time = time.time()
-        while (time.time() - start_time < self.exp_time):
+        while (time.time() - start_time < self.experiment_time):
+            cycle_start_time = time.time()
         
-            start = time.time()
+            # get chunks of data from inlets
+            pnchunk, _ = self.inlet_pn.pull_chunk()
+            chunk_pn = np.asarray(pnchunk)
+            chunk, _ = self.inlet_amp.pull_chunk()
+            chunk_amp = np.asarray(chunk)
         
-            chunk, timestamp = self.inlet_amp.pull_chunk()
-            chunk = np.asarray(chunk)
-            chunk_size = chunk.shape[0]
-        
-            pnchunk, timestamp = self.inlet_pn.pull_chunk()
-            pnchunk = np.asarray(pnchunk)
-            pnchunk_size = pnchunk.shape[0]
+            # process chunks, if no chunks - previous data will be used
+            if chunk_pn.shape[0] > 0:
+                pn_buffer = self._process_chunk_pn(chunk_pn, pn_buffer)
+            else:
+                print('{} {}: empty pn chunk encountered'.format(time.strftime('%H:%M:%S'), type(self).__name__))
+            if chunk_amp.shape[0] > 0:
+                WienerCoords, KalmanCoords = self._process_chunk_amp(chunk_amp)            
+            else:
+                print('{} {}: empty chunk encountered'.format(time.strftime('%H:%M:%S'), type(self).__name__))
             
-            if pnchunk_size > 0:
-                pnchunk = pnchunk[:, self.fingersrange]
-                for i in range(pnchunk.shape[1]):
-                    t = pnchunk[:, i]
-                    nans = np.isnan(t)
-                    if sum(~nans) == 0:
-                        t = self.pnbuff[i]
-                    else:
-                        t = np.median(t[~nans])
-                    self.pnbuff[i] = t
+            # get predictions and factual result and send them to avatar
+            prediction = KalmanCoords[-1,:len(self.pn_fingers_range)]   
+            fact = np.copy(pn_buffer)
+            self.coordbuff.append((prediction, fact))
+            self._send_data_to_avatar(prediction, fact)
+        
+            # control time of each cycle of the loop 
+            difference_time = self.avatar_period - (time.time() - cycle_start_time)
+            if difference_time > 0:
+                time.sleep(difference_time)
             else:
-                print('empty pn chunk encountered')
+                print('{} {}: not enough time for chunk processing, latency is {} s'.format(time.strftime('%H:%M:%S'), type(self).__name__, difference_time))
         
-            if chunk_size > 0:
-                
-                chunk = chunk[:, :self.numCh]
-                chunk = self.emgfilter.filterEMG(chunk)
-                WienerCoords, KalmanCoords = self.emgdecoder.transform(chunk)
-                
-                #getting the last samples
-                prediction = KalmanCoords[-1,:len(self.fingersrange)]   
-                fact = np.copy(self.pnbuff)
+    
+    def _process_chunk_pn(self, chunk_pn, pn_buffer):
+        chunk_pn = chunk_pn[:, self.pn_fingers_range]
+        medians = np.nanmedian(chunk_pn, axis=0)
+        pn_buffer[~np.isnan(medians)] = medians[~np.isnan(medians)]
+        return pn_buffer
+    
+    def _process_chunk_amp(self, chunk_amp):
+        chunk_amp = chunk_amp[:, :self.numCh]
+        chunk_amp = self.filter.filterEMG(chunk_amp)
+        WienerCoords, KalmanCoords = self.decoder.transform(chunk_amp)
+        return WienerCoords, KalmanCoords
         
+    def _send_data_to_avatar(self, prediction, fact):
+        self.avatar_buffer[self.avatar_fingers_range] = fact
+        #self.avatar_buffer[self.avatar_fingers_range + self.avatar_buffer_size//2 + 3] = fact
+        #self.avatar_buffer[self.avatar_fingers_range + self.avatar_buffer_size//2 + 6] = fact/2
+            
+        self.avatar_buffer[self.avatar_fingers_range + self.avatar_buffer_size//2] = prediction
+        #self.avatar_buffer[self.avatar_fingers_range + 3] = prediction
+        #self.avatar_buffer[self.avatar_fingers_range + 6] = prediction/2
+    
+        data = struct.pack('%df' % len(self.avatar_buffer), *list(map(float, self.avatar_buffer)))
+        self.sock.sendto(data, self.client_address)
         
-                # self.fsendrange = np.array([14,23,32,41])
-                self.avatarBuffer[self.fsendrange] = prediction
-                self.avatarBuffer[self.fsendrange+3] = prediction
-                self.avatarBuffer[self.fsendrange+6] = prediction/2
-        
-                self.avatarBuffer[self.fsendrange+48] = fact
-                self.avatarBuffer[self.fsendrange+3+48] = fact
-                self.avatarBuffer[self.fsendrange+6+48] = fact/2
-                
-                self.coordbuff.append((prediction,fact))
-                
-                #sending to the Avatar
-                data2 = struct.pack('%df' % len(self.avatarBuffer), *list(map(float, self.avatarBuffer)))
-                self.sock.sendto(data2, self.client_address)
-                
-            else:
-                print('empty chunk encountered')
-        
-            dif = self.tpf - time.time() + start
-            if dif > 0:
-                time.sleep(dif)
-            else:
-                print("not enough time for chunk processing, latency is ", dif, ' s')
         
     def get_coordbuff(self):
         return self.coordbuff
