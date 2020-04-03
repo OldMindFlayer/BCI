@@ -91,20 +91,24 @@ class ExperimentRealtime():
             cycle_start_time = time.time()
         
             # get chunks of data from inlets
-            pnchunk, _ = self.inlet_pn.pull_chunk()
+            pnchunk, _ = self.inlet_pn.pull_chunk(max_samples=500)
             chunk_pn = np.asarray(pnchunk)
-            chunk, _ = self.inlet_amp.pull_chunk()
-            chunk_amp = np.asarray(chunk)
+            ampchunk, _ = self.inlet_amp.pull_chunk(max_samples=500)
+            chunk_amp = np.asarray(ampchunk)
         
             # process chunks, if no chunks - previous data will be used
             if chunk_pn.shape[0] > 0:
+                t1 = time.time()
                 pn_buffer = self._process_chunk_pn(chunk_pn, pn_buffer)
+                #print('t1', time.time()-t1)
             else:
                 print('{} {}: empty pn chunk encountered'.format(time.strftime('%H:%M:%S'), type(self).__name__))
             if chunk_amp.shape[0] > 0:
-                WienerCoords, KalmanCoords = self._process_chunk_amp(chunk_amp)            
+                t2 = time.time()
+                WienerCoords, KalmanCoords = self._process_chunk_amp(chunk_amp)    
+                print('t2', time.time()-t2)
             else:
-                print('{} {}: empty chunk encountered'.format(time.strftime('%H:%M:%S'), type(self).__name__))
+                print('{} {}: empty amp chunk encountered'.format(time.strftime('%H:%M:%S'), type(self).__name__))
             
             # get predictions and factual result and send them to avatar
             prediction = KalmanCoords[-1,:len(self.pn_fingers_range)]   
@@ -117,19 +121,27 @@ class ExperimentRealtime():
             if difference_time > 0:
                 time.sleep(difference_time)
             else:
-                print('{} {}: not enough time for chunk processing, latency is {} s'.format(time.strftime('%H:%M:%S'), type(self).__name__, difference_time))
+                print('{} {}: not enough time for chunks {} and {} processing, latency is {} s'.format(time.strftime('%H:%M:%S'), 
+                                                                                                       type(self).__name__,
+                                                                                                       chunk_pn.shape,
+                                                                                                       chunk_amp.shape,
+                                                                                                       difference_time))
         
     
     def _process_chunk_pn(self, chunk_pn, pn_buffer):
-        chunk_pn = chunk_pn[:, self.pn_fingers_range]
-        medians = np.nanmedian(chunk_pn, axis=0)
+        chunk = chunk_pn[:, self.pn_fingers_range]
+        medians = np.nanmedian(chunk, axis=0)
         pn_buffer[~np.isnan(medians)] = medians[~np.isnan(medians)]
         return pn_buffer
     
     def _process_chunk_amp(self, chunk_amp):
-        chunk_amp = chunk_amp[:, :self.numCh]
-        chunk_amp = self.filter.filterEMG(chunk_amp)
-        WienerCoords, KalmanCoords = self.decoder.transform(chunk_amp)
+        chunk = chunk_amp[:, :self.numCh]
+        t3 = time.time()
+        chunk = self.filter.filterEMG(chunk)
+        print('t3', time.time() - t3)
+        t4 = time.time()
+        WienerCoords, KalmanCoords = self.decoder.transform(chunk)
+        print('t4', time.time() - t4)
         return WienerCoords, KalmanCoords
         
     def _send_data_to_avatar(self, prediction, fact):
