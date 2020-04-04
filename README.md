@@ -1,11 +1,11 @@
-# SpeechMapping
+# MyoDecode
 
 ## requirements
-* install Anaconda distribution
+* install Anaconda3 distribution
 * install pylsl
 > pip install pylsl
 * for gebug mode (to emmulate amplifier):
-    * Download NFB Lab from https://github.com/nikolaims/nfb into the same folder MyoDecode was downloaded
+    * download NFB Lab from https://github.com/nikolaims/nfb into the same folder MyoDecode was downloaded
 
 ## start in default mode
 > python main.py
