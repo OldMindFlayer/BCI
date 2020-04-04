@@ -9,12 +9,12 @@ import numpy as np
 
 
 
-with h5py.File('C:/PNAvatarProject/PNAvatarData/25_03_20_Test34/14_31_39_experiment/experiment_data.h5', "r") as file:
+with h5py.File('C:/MyoDecodeProject/MyoDecodeData/20_04_04_120538_Test34/experiment_data.h5', "r") as file:
     data = file['protocol1']['raw_data'][()]
     timestemp = file['protocol1']['timestamp_data'][()]
     print(data.shape)
-    print(data[:, 200])
-    print(np.sum(np.isnan(data[:, 200])))
+    print(data[:, 130])
+    print(np.sum(np.isnan(data[:, 130])))
     print(timestemp.shape)
     print(timestemp)
 

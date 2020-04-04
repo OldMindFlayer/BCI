@@ -5,22 +5,26 @@ Created on Thu Jun 28 18:13:30 2018
 @author: Александр/AlexVosk
 """
 
-import sys
 import time
-import numpy as np
 import socket
 import struct
+import numpy as np
 
+from emg.EMGdecode import EMGDecoder
+from emg.EMGfilter import envelopeFilter
 
 
 class ExperimentRealtime():
-    def __init__(self, config, inlet_amp, inlet_pn):
+    def __init__(self, config, inlet_amp, pnhandler):
         self.config = config
+        self.kalman_time = 0
         
-        # lsl inlets
-        self.inlet_amp = inlet_amp #myoInlet
-        self.inlet_pn = inlet_pn #pnInlet
-        
+        # init inlet from amp, pn handler and decoder/filter
+        self.inlet_amp = inlet_amp
+        self.pnhandler = pnhandler
+        self.decoder = None
+        self.filter = None
+    
         # time of realtime experiment (inf if it set to -1)
         experiment_time = self.config['general'].getint('experiment_time_realtime')
         self.experiment_time = float('inf') if experiment_time < 0 else experiment_time
@@ -37,7 +41,6 @@ class ExperimentRealtime():
         # buffer for plotting
         self.coordbuff = []
         
-        
         # PN channels for finger joints
         self.pn_fingers_range = np.asarray(list(map(int, self.config['general']['pn_fingers_range'].split())))
         # avatar channels for finger joints
@@ -52,81 +55,79 @@ class ExperimentRealtime():
         self.server_address = ('127.0.0.1', 12001)
         self.client_address = ('127.0.0.1', 9001)
         self.sock.bind(self.server_address)
-        print('{} {}: UDP from {} {} established'.format(time.strftime('%H:%M:%S'), type(self).__name__, *self.server_address))
+        self._printm('UDP from {} {} established'.format(*self.server_address))
 
-        # fit the model and initialize filter
-        print('{} {}: fitting...'.format(time.strftime('%H:%M:%S'), type(self).__name__))
-        self.decoder, self.filter = self._fit()
-        print('{} {}: decoding...'.format(time.strftime('%H:%M:%S'), type(self).__name__))
-        self.decode()
-        
         
     # fit data from file
-    def _fit(self):
-        # load Decoder and Filter from NEOREC
-        sys.path.append(self.config['paths']['root_path'] + '/MyoDecode/NEOREC')
-        from EMGdecode import EMGDecoder
-        from EMGfilter import envelopeFilter
-        
+    def fit(self):
+        self._printm('fitting...')
         # fit the model from file and initialize filter
-        emgdecoder = EMGDecoder()
-        emgdecoder.fit(X = None, Y = None, 
+        self.decoder = EMGDecoder()
+        self.decoder.fit(X = None, Y = None, 
                        file=self.config['paths']['experiment_data_path'], 
                        numCh = self.numCh, offCh = self.offCh, 
                        Pn = self.pn_fingers_range, 
                        lag = 2, forward = 0, downsample = 0)
-        emgfilter = envelopeFilter()
-        return emgdecoder, emgfilter
+        self.filter = envelopeFilter()
         
     
     # decode realtime data
     def decode(self):
+        self._printm('decoding...')
+        
         # initialize pn_buffer and KalmanCoords
         pn_buffer = np.zeros(len(self.pn_fingers_range))
         KalmanCoords = np.zeros((1, self.numCh))
         
         # get chunks, decode and sent to avatar
         start_time = time.time()
+        counter = 0
+        counter_messages = 0
         while (time.time() - start_time < self.experiment_time):
             cycle_start_time = time.time()
         
             # get chunks of data from inlets
-            pnchunk, _ = self.inlet_pn.pull_chunk(max_samples=500)
-            chunk_pn = np.asarray(pnchunk)
+            chunk_pn, _ = self.pnhandler.get_next_chunk_pn()
             ampchunk, _ = self.inlet_amp.pull_chunk(max_samples=500)
             chunk_amp = np.asarray(ampchunk)
         
             # process chunks, if no chunks - previous data will be used
             if chunk_pn.shape[0] > 0:
-                t1 = time.time()
                 pn_buffer = self._process_chunk_pn(chunk_pn, pn_buffer)
-                #print('t1', time.time()-t1)
             else:
-                print('{} {}: empty pn chunk encountered'.format(time.strftime('%H:%M:%S'), type(self).__name__))
+                self._printm('empty pn chunk encountered')
             if chunk_amp.shape[0] > 0:
-                t2 = time.time()
+                counter += chunk_amp.shape[0]
                 WienerCoords, KalmanCoords = self._process_chunk_amp(chunk_amp)    
-                print('t2', time.time()-t2)
             else:
-                print('{} {}: empty amp chunk encountered'.format(time.strftime('%H:%M:%S'), type(self).__name__))
+                self._printm('empty amp chunk encountered')
             
             # get predictions and factual result and send them to avatar
             prediction = KalmanCoords[-1,:len(self.pn_fingers_range)]   
             fact = np.copy(pn_buffer)
             self.coordbuff.append((prediction, fact))
             self._send_data_to_avatar(prediction, fact)
+            
+            # massage to see progress
+            if counter // 3000 > counter_messages:
+                counter_messages += 1
+                self._printm('sent {} samples to avatar'.format(counter))
         
             # control time of each cycle of the loop 
             difference_time = self.avatar_period - (time.time() - cycle_start_time)
             if difference_time > 0:
                 time.sleep(difference_time)
             else:
-                print('{} {}: not enough time for chunks {} and {} processing, latency is {} s'.format(time.strftime('%H:%M:%S'), 
-                                                                                                       type(self).__name__,
-                                                                                                       chunk_pn.shape,
-                                                                                                       chunk_amp.shape,
+                self._printm('not enough time for chunks {} and {} processing, latency is {} s'.format(chunk_pn.shape, 
+                                                                                                       chunk_amp.shape, 
                                                                                                        difference_time))
-        
+                self._printm('Kalman decoding time: {}'.format(self.kalman_time))
+    
+    
+    def get_coordbuff(self):
+        return self.coordbuff
+    
+    
     
     def _process_chunk_pn(self, chunk_pn, pn_buffer):
         chunk = chunk_pn[:, self.pn_fingers_range]
@@ -136,12 +137,10 @@ class ExperimentRealtime():
     
     def _process_chunk_amp(self, chunk_amp):
         chunk = chunk_amp[:, :self.numCh]
-        t3 = time.time()
         chunk = self.filter.filterEMG(chunk)
-        print('t3', time.time() - t3)
         t4 = time.time()
         WienerCoords, KalmanCoords = self.decoder.transform(chunk)
-        print('t4', time.time() - t4)
+        self.kalman_time = time.time() - t4
         return WienerCoords, KalmanCoords
         
     def _send_data_to_avatar(self, prediction, fact):
@@ -156,8 +155,8 @@ class ExperimentRealtime():
         data = struct.pack('%df' % len(self.avatar_buffer), *list(map(float, self.avatar_buffer)))
         self.sock.sendto(data, self.client_address)
         
-        
-    def get_coordbuff(self):
-        return self.coordbuff
-    
+    def _printm(self, message):
+        print('{} {}: '.format(time.strftime('%H:%M:%S'), type(self).__name__) + message)
 
+    
+        

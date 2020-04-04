@@ -1,19 +1,16 @@
 import sys
-from pn2lsl import PN2LSL
-#from lsl_stream_generator import LSL_Generator
 import time
-import importlib
-from pylsl import resolve_streams
 from threading import Thread
-from experiment import Experiment
-from config import config_init
-from pathlib import Path
-from stream_decode_v2 import ExperimentRealtime
-import numpy as np
-from matplotlib import pyplot as plt
+import win32api, win32process, win32con
 
+from config import config_init
+from pnhandler import PNHandler
+from experiment_record import ExperimentRecord
+from experiment_realtime import ExperimentRealtime
 
 def main():
+    setpriority(pid=None,priority=5)
+    
     config = config_init(sys.argv)
     
     # Debug mode uses LSL_Generator for debuging
@@ -31,29 +28,32 @@ def main():
         lsl_stream_debug_tread.start()
         print("generators.run_eeg_sim start DEBUG LSL \"{}\"".format(config['general']['lsl_stream_name_amp']))
     
-    pn2lsl = PN2LSL(TCP_IP='127.0.0.1', TCP_PORT = 7010, BUFFER_SIZE = 1800, debug=False)
-    pn2lsl.start()
-    time.sleep(2)
+    pnhandler = PNHandler(config, TCP_IP='127.0.0.1', TCP_PORT = 7010, BUFFER_SIZE = 1800)
+    pnhandler.start()
+    time.sleep(1.5)
 
-    #while True:
-    #    time.sleep(3)
-
-    experiment = Experiment(config)
-    experiment.record_data(config['general'].getint('experiment_time_record'))
-    inlet_amp = experiment.get_inlet_amp()
-    inlet_pn = experiment.get_inlet_pn()
+    experiment_record = ExperimentRecord(config, pnhandler)
+    experiment_record.record_data()
+    lsl_inlet_amp = experiment_record.get_inlet_amp()
     
-    experiment_realtime = ExperimentRealtime(config, inlet_amp, inlet_pn)
+    experiment_realtime = ExperimentRealtime(config, lsl_inlet_amp, pnhandler)
+    experiment_realtime.fit()
+    experiment_realtime.decode()
     
-    Pn=np.array([c[1] for c in experiment_realtime.get_coordbuff()])
-    Dec=np.array([c[0] for c in experiment_realtime.get_coordbuff()])
-
-    for i in range(Pn.shape[1]):
-        plt.plot(Pn[1000:,i]+100*i)
-        plt.plot(Dec[1000:,i]+100*i)
-    plt.show()
-    
-    
+def setpriority(pid=None,priority=1):
+    """ Set The Priority of a Windows Process.  Priority is a value between 0-5 where
+        2 is normal priority.  Default sets the priority of the current
+        python process but can take any valid process ID. """
+    priorityclasses = [win32process.IDLE_PRIORITY_CLASS,
+                       win32process.BELOW_NORMAL_PRIORITY_CLASS,
+                       win32process.NORMAL_PRIORITY_CLASS,
+                       win32process.ABOVE_NORMAL_PRIORITY_CLASS,
+                       win32process.HIGH_PRIORITY_CLASS,
+                       win32process.REALTIME_PRIORITY_CLASS]
+    if pid == None:
+        pid = win32api.GetCurrentProcessId()
+    handle = win32api.OpenProcess(win32con.PROCESS_ALL_ACCESS, True, pid)
+    win32process.SetPriorityClass(handle, priorityclasses[priority])
     
     
     

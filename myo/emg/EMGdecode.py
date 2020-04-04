@@ -8,8 +8,8 @@ Created on Tue Jun 26 21:15:26 2018
 import scipy.io
 import numpy as np
 import h5py
-import PNinterpolate
-from EMGfilter import envelopeFilter
+import emg.PNinterpolate as PNinterpolate
+from emg.EMGfilter import envelopeFilter
 import tqdm
 from matplotlib import pyplot as plt
 
@@ -213,7 +213,7 @@ class EMGDecoder:
             emg_lag=emg_buffer[:chunkSize-self.lag-self.forward,1:]
             
             for l in range(self.lag+1):
-                emg_lag[:,l*numCh:(l+1)*numCh]=EMGchunk[(l):(chunkSize-self.lag-self.forward+l),:]
+                emg_lag[:,l*numCh:(l+1)*numCh]=EMGchunk[(l):(chunkSize-self.lag-self.forward+l),:] ### bug!!!!!!!
                 Tail[:self.lag-l,l*numCh:(l+1)*numCh]=EMGchunk[chunkSize-self.lag+l:chunkSize,:]
                 t=np.copy(Tail)
             emg_lag=emg_buffer[:chunkSize-self.lag-self.forward,:]
