@@ -88,7 +88,8 @@ class EMGDecoder:
         Now=np.hstack((np.apply_along_axis(offset,0,Coord,self.lag,3),np.apply_along_axis(offset,0,Vel,self.lag,2),np.apply_along_axis(offset,0,Acc,self.lag,1)))
         
         Lag=np.hstack((np.apply_along_axis(offset,0,Coord,self.lag,2,1),np.apply_along_axis(offset,0,Vel,self.lag,1,1),np.apply_along_axis(offset,0,Acc,self.lag,0,1)))
-        
+        print(Lag)
+        print(Lag.shape)
         self.A=np.linalg.pinv(Lag) @ Now
         
         State_Trans_Error=Now-Lag @ self.A

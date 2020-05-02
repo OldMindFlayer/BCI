@@ -5,8 +5,10 @@ import win32api, win32process, win32con
 
 from config import config_init
 from pnhandler import PNHandler
+from amp_inlet import get_inlet_amp
 from experiment_record import ExperimentRecord
 from experiment_realtime import ExperimentRealtime
+from stimulator import Stimulator
 
 def main():
     setpriority(pid=None,priority=5)
@@ -19,26 +21,45 @@ def main():
         sys.path.append(config['paths']['lsl_stream_generator_path'])
         sys.path.append(config['paths']['lsl_stream_generator_path'] + '/pynfb')
         from generators import run_eeg_sim
-        freq = config['general'].getint('fs_amp')
-        name = config['general']['lsl_stream_name_amp']
-        labels = ['channel{}'.format(i) for i in range(config['general'].getint('n_channels_amp'))]
+        freq = config['amp_config'].getint('fs_amp')
+        name = config['amp_config']['lsl_stream_name_amp']
+        labels = ['channel{}'.format(i) for i in range(config['amp_config'].getint('n_channels_amp'))]
         lsl_stream_debug = lambda: run_eeg_sim(freq, name=name, labels=labels)
         lsl_stream_debug_tread = Thread(target=lsl_stream_debug, args=())
         lsl_stream_debug_tread.daemon = True
         lsl_stream_debug_tread.start()
-        print("generators.run_eeg_sim start DEBUG LSL \"{}\"".format(config['general']['lsl_stream_name_amp']))
+        print("generators.run_eeg_sim start DEBUG LSL \"{}\"".format(config['amp_config']['lsl_stream_name_amp']))
     
-    pnhandler = PNHandler(config, TCP_IP='127.0.0.1', TCP_PORT = 7010, BUFFER_SIZE = 1800)
+    # initiate stream of PN and Amp data
+    pnhandler = PNHandler(config)
     pnhandler.start()
+    inlet_amp = get_inlet_amp(config)
     time.sleep(1.5)
-
-    experiment_record = ExperimentRecord(config, pnhandler)
-    experiment_record.record_data()
-    lsl_inlet_amp = experiment_record.get_inlet_amp()
     
-    experiment_realtime = ExperimentRealtime(config, lsl_inlet_amp, pnhandler)
-    experiment_realtime.fit()
-    experiment_realtime.decode()
+    # record train data
+    if config['general'].getboolean('record_enable'):    
+        experiment_record = ExperimentRecord(config, pnhandler, inlet_amp)
+        experiment_record.record_data()
+        input("Data is recorded, press Enter to continue...")
+    
+    # start realtime experiment
+    if not config['general'].getboolean('record_enable'):
+        return
+    
+    # stimulate during realtime
+    stimulator = Stimulator(config)
+    stimulator.connect()
+
+    #
+    try:
+        experiment_realtime = ExperimentRealtime(config, pnhandler, inlet_amp, stimulator)
+        experiment_realtime.fit()
+        experiment_realtime.decode()
+    finally:
+        
+        stimulator.close_connection()
+
+    
     
 def setpriority(pid=None,priority=1):
     """ Set The Priority of a Windows Process.  Priority is a value between 0-5 where

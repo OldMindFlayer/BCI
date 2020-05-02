@@ -8,29 +8,22 @@ Created on Wed Mar 25 12:29:53 2020
 import time
 
 import h5py
-import pylsl
 import numpy as np
 
 class ExperimentRecord():
-    def __init__(self, config, pnhandler, dtype = 'float64'):
+    def __init__(self, config, pnhandler, inlet_amp, dtype = 'float64'):
         self.config = config
         self.pnhandler = pnhandler
+        self.inlet_amp = inlet_amp
         self.dtype = dtype
         
-        streams = pylsl.resolve_byprop('name', config['general']['lsl_stream_name_amp'])
-        self.inlet_amp = pylsl.StreamInlet(streams[0], 3)
-        self.inlet_amp_info = self._stream_info(self.inlet_amp)
-        self._printm('LSL stream \"{}\" resolved'.format(config['general']['lsl_stream_name_amp']))
-
-        assert self.inlet_amp_info['n_channels'] == self.config['general'].getint('n_channels_amp'), 'wrong n_channels_amp'
-        assert self.inlet_amp_info['fs'] == self.config['general'].getint('fs_amp'), 'wrong fs_amp'
 
         self.stacked_data = None
         self.stacked_timestamps = None
 
 
     def record_data(self):
-        size = self.config['general'].getint('experiment_time_record')
+        size = self.config['record'].getint('experiment_time_record') * self.config['amp_config'].getint('fs_amp')
         counter = 0
         curr_count = 0
         # init lists to store data
@@ -70,7 +63,7 @@ class ExperimentRecord():
     
     
     def _chunk_stack(self, chunk_amp, timestamp_amp, chunk_pn, timestamp_pn):
-        chunk_pn_to_stack = np.zeros((chunk_amp.shape[0], self.config['general'].getint('n_channels_pn'))) * np.nan
+        chunk_pn_to_stack = np.zeros((chunk_amp.shape[0], self.config['pn_config'].getint('n_channels_pn'))) * np.nan
         if chunk_pn is not None:
             timestamp_pn = timestamp_pn - timestamp_pn[0] + timestamp_amp[0]
             chunk_pn_to_stack[np.searchsorted(timestamp_amp[:-1], timestamp_pn), :] = chunk_pn
@@ -97,8 +90,3 @@ class ExperimentRecord():
         
     def _printm(self, message):
         print('{} {}: '.format(time.strftime('%H:%M:%S'), type(self).__name__) + message)
-        
-
-
-    def get_inlet_amp(self):
-        return self.inlet_amp

@@ -4,7 +4,7 @@
 * install Anaconda3 distribution
 * install pylsl
 > pip install pylsl
-* for gebug mode (to emmulate amplifier):
+* for gebug mode (to emulate amplifier):
     * download NFB Lab from https://github.com/nikolaims/nfb into the same folder MyoDecode was downloaded
 
 ## start in default mode

@@ -15,40 +15,43 @@ from emg.EMGfilter import envelopeFilter
 
 
 class ExperimentRealtime():
-    def __init__(self, config, inlet_amp, pnhandler):
+    def __init__(self, config, pnhandler, inlet_amp, stimulator = None):
         self.config = config
         self.kalman_time = 0
         
-        # init inlet from amp, pn handler and decoder/filter
-        self.inlet_amp = inlet_amp
+        # init pnhandler, inlet_amp, stimulator and decoder/filter
         self.pnhandler = pnhandler
+        self.inlet_amp = inlet_amp
+        self.stimulator = stimulator
         self.decoder = None
         self.filter = None
     
-        # time of realtime experiment (inf if it set to -1)
-        experiment_time = self.config['general'].getint('experiment_time_realtime')
-        self.experiment_time = float('inf') if experiment_time < 0 else experiment_time
         
         # params of amp data stream
-        self.numCh = self.config['general'].getint('n_channels_amp')
+        self.numCh = self.config['amp_config'].getint('n_channels_amp')
         self.offCh = self.numCh
-        self.srate = self.config['general'].getint('fs_amp')
+        self.srate = self.config['amp_config'].getint('fs_amp')
 
-        avatar_freq = self.config['general'].getint('avatar_freq')
+        # time of realtime experiment (inf if it set to -1)
+        experiment_time = self.config['realtime'].getint('experiment_time_realtime')
+        self.experiment_time = float('inf') if experiment_time < 0 else experiment_time * self.srate
+
+
+
+        avatar_freq = self.config['avatar'].getint('avatar_freq')
         self.avatar_period = 1 / avatar_freq
-        self.avatar_buffer_size = self.config['general'].getint('avatar_buffer_size')
+        self.avatar_buffer_size = self.config['avatar'].getint('avatar_buffer_size')
         
         # buffer for plotting
         self.coordbuff = []
         
         # PN channels for finger joints
-        self.pn_fingers_range = np.asarray(list(map(int, self.config['general']['pn_fingers_range'].split())))
+        self.pn_fingers_range = np.asarray(list(map(int, self.config['avatar']['pn_fingers_coords'].split())))
         # avatar channels for finger joints
-        self.avatar_fingers_range = np.asarray(list(map(int, self.config['general']['avatar_fingers_range'].split())))
+        self.avatar_fingers_range = np.asarray(list(map(int, self.config['avatar']['avatar_fingers_coords'].split())))
         
         # buffer
         self.avatar_buffer = np.zeros(self.avatar_buffer_size)
-        
         
         # initializing Avatar connection
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -56,6 +59,16 @@ class ExperimentRealtime():
         self.client_address = ('127.0.0.1', 9001)
         self.sock.bind(self.server_address)
         self._printm('UDP from {} {} established'.format(*self.server_address))
+        
+        self.stimulator.configurate(self.config['stimulation'].getint('electrode_start'),
+                                    self.config['stimulation'].getint('electrode_stop'))
+        
+        self.stimulation_time = self.config['stimulation'].getint('stimulation_time')
+        self.refractory_time = self.config['stimulation'].getint('refractory_time')
+        self.refractory_start = 0
+        self.bias = 45
+        
+        
 
         
     # fit data from file
@@ -64,7 +77,7 @@ class ExperimentRealtime():
         # fit the model from file and initialize filter
         self.decoder = EMGDecoder()
         self.decoder.fit(X = None, Y = None, 
-                       file=self.config['paths']['experiment_data_path'], 
+                       file=self.config['paths']['experiment_data_to_fit_path'], 
                        numCh = self.numCh, offCh = self.offCh, 
                        Pn = self.pn_fingers_range, 
                        lag = 2, forward = 0, downsample = 0)
@@ -88,7 +101,7 @@ class ExperimentRealtime():
         
             # get chunks of data from inlets
             chunk_pn, _ = self.pnhandler.get_next_chunk_pn()
-            ampchunk, _ = self.inlet_amp.pull_chunk(max_samples=500)
+            ampchunk, _ = self.inlet_amp.pull_chunk(max_samples=20)
             chunk_amp = np.asarray(ampchunk)
         
             # process chunks, if no chunks - previous data will be used
@@ -96,16 +109,24 @@ class ExperimentRealtime():
                 pn_buffer = self._process_chunk_pn(chunk_pn, pn_buffer)
             else:
                 self._printm('empty pn chunk encountered')
+                
             if chunk_amp.shape[0] > 0:
+                #print(chunk_amp.shape)
                 counter += chunk_amp.shape[0]
                 WienerCoords, KalmanCoords = self._process_chunk_amp(chunk_amp)    
-            else:
-                self._printm('empty amp chunk encountered')
             
             # get predictions and factual result and send them to avatar
             prediction = KalmanCoords[-1,:len(self.pn_fingers_range)]   
             fact = np.copy(pn_buffer)
             self.coordbuff.append((prediction, fact))
+            
+            to_stimulate = (- 1.5*fact[0] - self.bias - 55 < 0) and (- fact[1] > 40)
+            #print((- (1.2*fact[0]+15) - 55 > 0), (- fact[1] > 40))
+            #print(to_stimulate)
+            if self.stimulator is not None and to_stimulate:
+                self._stimulate()    
+            
+            
             self._send_data_to_avatar(prediction, fact)
             
             # massage to see progress
@@ -144,16 +165,21 @@ class ExperimentRealtime():
         return WienerCoords, KalmanCoords
         
     def _send_data_to_avatar(self, prediction, fact):
+        fact[0] = fact[0] *1.5 + self.bias
+        #fact[1] = fact[1] *1.2
+        
         self.avatar_buffer[self.avatar_fingers_range] = fact
-        #self.avatar_buffer[self.avatar_fingers_range + self.avatar_buffer_size//2 + 3] = fact
-        #self.avatar_buffer[self.avatar_fingers_range + self.avatar_buffer_size//2 + 6] = fact/2
-            
         self.avatar_buffer[self.avatar_fingers_range + self.avatar_buffer_size//2] = prediction
-        #self.avatar_buffer[self.avatar_fingers_range + 3] = prediction
-        #self.avatar_buffer[self.avatar_fingers_range + 6] = prediction/2
-    
+        
         data = struct.pack('%df' % len(self.avatar_buffer), *list(map(float, self.avatar_buffer)))
         self.sock.sendto(data, self.client_address)
+        
+    def _stimulate(self):
+        if (time.time() - self.refractory_start)*1000 >= self.refractory_time:
+            self.stimulator.stimulate(self.stimulation_time, 1)
+            self.refractory_start = time.time()
+        
+        
         
     def _printm(self, message):
         print('{} {}: '.format(time.strftime('%H:%M:%S'), type(self).__name__) + message)
