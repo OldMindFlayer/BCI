@@ -22,21 +22,22 @@ def test(config):
     # stimulate from electrode 1 to electrode 2
     
     stimulator.configurate(0, 1)
-    t = 10000
-    sleep = 150
-    for i in range(t//sleep):
-        stimulator.stimulate(i, 1)
-        time.sleep((sleep - i)/1000)
-        print('stimulation length {}'.format(i))
+    stimulator.stimulate(2500, 1)
+    #t = 10000
+    #sleep = 150
+    #for i in range(t//sleep):
+        #stimulator.stimulate(i, 1)
+        #time.sleep((sleep - i)/1000)
+        #print('stimulation length {}'.format(i))
 
     # stimulate from electrode 2 to electrode 1
-    stimulator.configurate(1, 0)
-    t = 10000
-    sleep = 150
-    for i in range(t//sleep):
-        stimulator.stimulate(100 - i, 1)
-        time.sleep((sleep - i + 100)/1000)
-        print('stimulation length {}'.format(100 - i))
+    #stimulator.configurate(1, 0)
+    #t = 10000
+    #sleep = 150
+    #for i in range(t//sleep):
+    #    stimulator.stimulate(100 - i, 1)
+    #    time.sleep((sleep - i + 100)/1000)
+    #    print('stimulation length {}'.format(100 - i))
 
     stimulator.close_connection()
 

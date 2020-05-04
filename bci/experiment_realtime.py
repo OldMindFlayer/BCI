@@ -12,6 +12,7 @@ import numpy as np
 
 from emg.EMGdecode import EMGDecoder
 from emg.EMGfilter import envelopeFilter
+from parameters_avatar import refresh_avatar_parameters
 
 
 class ExperimentRealtime():
@@ -66,7 +67,9 @@ class ExperimentRealtime():
         self.stimulation_time = self.config['stimulation'].getint('stimulation_time')
         self.refractory_time = self.config['stimulation'].getint('refractory_time')
         self.refractory_start = 0
-        self.bias = 45
+        self.avatar_bias_thumb = self.config['avatar'].getint('avatar_bias_thumb')
+        self.avatar_scalar_thumb = self.config['avatar'].getfloat('avatar_scalar_thumb')
+        self.avatar_parameters = refresh_avatar_parameters()
         
         
 
@@ -111,7 +114,6 @@ class ExperimentRealtime():
                 self._printm('empty pn chunk encountered')
                 
             if chunk_amp.shape[0] > 0:
-                #print(chunk_amp.shape)
                 counter += chunk_amp.shape[0]
                 WienerCoords, KalmanCoords = self._process_chunk_amp(chunk_amp)    
             
@@ -120,9 +122,7 @@ class ExperimentRealtime():
             fact = np.copy(pn_buffer)
             self.coordbuff.append((prediction, fact))
             
-            to_stimulate = (- 1.5*fact[0] - self.bias - 55 < 0) and (- fact[1] > 40)
-            #print((- (1.2*fact[0]+15) - 55 > 0), (- fact[1] > 40))
-            #print(to_stimulate)
+            to_stimulate = (- 1.5*fact[0] - self.bias - self.avatar_parameters['ExplosionAngle'] < 0) and (- fact[1] > 40)
             if self.stimulator is not None and to_stimulate:
                 self._stimulate()    
             
@@ -165,6 +165,7 @@ class ExperimentRealtime():
         return WienerCoords, KalmanCoords
         
     def _send_data_to_avatar(self, prediction, fact):
+        self.avatar_parameters = refresh_avatar_parameters()
         fact[0] = fact[0] *1.5 + self.bias
         #fact[1] = fact[1] *1.2
         
