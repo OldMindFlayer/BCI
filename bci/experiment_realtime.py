@@ -9,6 +9,7 @@ import time
 import socket
 import struct
 import numpy as np
+from pynput import keyboard
 
 from emg.EMGdecode import EMGDecoder
 from emg.EMGfilter import envelopeFilter
@@ -71,12 +72,17 @@ class ExperimentRealtime():
         self.avatar_scalar_thumb = self.config['avatar'].getfloat('avatar_scalar_thumb')
         self.avatar_parameters = refresh_avatar_parameters()
         
-        
+        #control from keyboard
+        self.key = False
+        listener = keyboard.Listener(on_press=self._on_press, on_release=self._on_release)
+        listener.daemon = True
+        listener.start()
 
+        
         
     # fit data from file
     def fit(self):
-        self._printm('fitting...')
+        self._printm('fitting data from:\n{}'.format(self.config['paths']['experiment_data_to_fit_path']))
         # fit the model from file and initialize filter
         self.decoder = EMGDecoder()
         self.decoder.fit(X = None, Y = None, 
@@ -108,7 +114,7 @@ class ExperimentRealtime():
             chunk_amp = np.asarray(ampchunk)
         
             # process chunks, if no chunks - previous data will be used
-            if chunk_pn.shape[0] > 0:
+            if chunk_pn is not None:
                 pn_buffer = self._process_chunk_pn(chunk_pn, pn_buffer)
             else:
                 self._printm('empty pn chunk encountered')
@@ -122,15 +128,21 @@ class ExperimentRealtime():
             fact = np.copy(pn_buffer)
             self.coordbuff.append((prediction, fact))
             
-            to_stimulate = (- 1.5*fact[0] - self.bias - self.avatar_parameters['ExplosionAngle'] < 0) and (- fact[1] > 40)
-            if self.stimulator is not None and to_stimulate:
-                self._stimulate()    
-            
+            if self.key:
+                to_stimulate = (- self.avatar_scalar_thumb*prediction[0] - self.avatar_bias_thumb - self.avatar_parameters['ExplosionAngle'] < 0) and (- prediction[1] > self.avatar_parameters['MaxIndexAngleMale'])
+                if self.stimulator is not None and to_stimulate:
+                    self._stimulate()    
+            else:
+                #print((- self.avatar_scalar_thumb*fact[0] - self.avatar_bias_thumb - self.avatar_parameters['ExplosionAngle']), - fact[1])
+                to_stimulate = (- self.avatar_scalar_thumb*fact[0] - self.avatar_bias_thumb - self.avatar_parameters['ExplosionAngle'] < 0) and (- fact[1] > self.avatar_parameters['MaxIndexAngleMale'])
+                if self.stimulator is not None and to_stimulate:
+                    self._stimulate()
+                
             
             self._send_data_to_avatar(prediction, fact)
             
             # massage to see progress
-            if counter // 3000 > counter_messages:
+            if counter // 10000 > counter_messages:
                 counter_messages += 1
                 self._printm('sent {} samples to avatar'.format(counter))
         
@@ -166,10 +178,17 @@ class ExperimentRealtime():
         
     def _send_data_to_avatar(self, prediction, fact):
         self.avatar_parameters = refresh_avatar_parameters()
-        fact[0] = fact[0] *1.5 + self.bias
-        #fact[1] = fact[1] *1.2
+        fact[0] = fact[0] *self.avatar_scalar_thumb + self.avatar_bias_thumb - 18
+        prediction[0] = prediction[0] *self.avatar_scalar_thumb + self.avatar_bias_thumb - 18
+                
         
-        self.avatar_buffer[self.avatar_fingers_range] = fact
+        if self.key:
+            self.avatar_buffer[self.avatar_fingers_range] = prediction
+        else:
+            self.avatar_buffer[self.avatar_fingers_range] = fact
+        
+        
+        
         self.avatar_buffer[self.avatar_fingers_range + self.avatar_buffer_size//2] = prediction
         
         data = struct.pack('%df' % len(self.avatar_buffer), *list(map(float, self.avatar_buffer)))
@@ -181,6 +200,18 @@ class ExperimentRealtime():
             self.refractory_start = time.time()
         
         
+        
+
+    def _on_press(self, key):
+        try:
+            k = key.char  # single-char keys
+        except:
+            k = key.name  # other keys
+        if k == 't':
+            self.key = not self.key
+
+    def _on_release(self, key):
+        pass
         
     def _printm(self, message):
         print('{} {}: '.format(time.strftime('%H:%M:%S'), type(self).__name__) + message)

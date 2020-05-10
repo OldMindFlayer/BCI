@@ -21,12 +21,17 @@ def test(config):
     
     # stimulate from electrode 1 to electrode 2
     
-    stimulator.configurate(0, 1)
-    stimulator.stimulate(2500, 1)
+    stimulator.configurate(2, 3)
+    time.sleep(1)
+    #stimulator.recieve_feedbeak()
+    #stimulator.stimulate(2500, 1)
+    #for i in range(20):
+    #    stimulator.stimulate(i*10, 1)
+    #    time.sleep(0.2)
     #t = 10000
     #sleep = 150
     #for i in range(t//sleep):
-        #stimulator.stimulate(i, 1)
+    #    stimulator.stimulate(i, 1)
         #time.sleep((sleep - i)/1000)
         #print('stimulation length {}'.format(i))
 

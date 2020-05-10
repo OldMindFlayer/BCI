@@ -176,9 +176,9 @@ void setup() {
       pinMode(CLOCK, OUTPUT);
       pinMode(SERIAL_IN, OUTPUT);
       digitalWrite(LATCH, LOW);
-      digitalWrite(CLOCK, LOW);
-      digitalWrite(SERIAL_IN, LOW);
-      registerReset();
+      digitalWrite(CLOCK, HIGH);
+      digitalWrite(SERIAL_IN, HIGH);
+      //registerReset();
       
       // Serial port initialization
       // baudrate 38400, other - default
@@ -210,7 +210,7 @@ void loop() {
       // open relay after command and close 8 ms after
       times.since_stimulus = times.cycle - times.stimulus;
       relay_window = (times.since_stimulus >= 4 && times.since_stimulus <= 6);
-      //relay_window = 1;
+      relay_window = 1;
       if (!command_resolved) {
             if (relay_closed) {
                   if (next_command.type == 254 && relay_window) {

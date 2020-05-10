@@ -30,6 +30,8 @@ def main():
         lsl_stream_debug_tread.start()
         print("generators.run_eeg_sim start DEBUG LSL \"{}\"".format(config['amp_config']['lsl_stream_name_amp']))
     
+    print('Running application, please check:\n 1) PN connection\n 2) Amplifier connection')
+    
     # initiate stream of PN and Amp data
     pnhandler = PNHandler(config)
     pnhandler.start()
@@ -43,7 +45,7 @@ def main():
         input("Data is recorded, press Enter to continue...")
     
     # start realtime experiment
-    if not config['general'].getboolean('record_enable'):
+    if not config['general'].getboolean('realtime_enable'):
         return
     
     # stimulate during realtime

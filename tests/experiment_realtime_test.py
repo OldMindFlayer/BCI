@@ -8,19 +8,18 @@ import time
 import configparser
 from pathlib import Path
 import sys
-from os import makedirs
 experiment_realtime_path = str(Path('experiment_realtime_test.py').resolve().parents[1]/'bci/')
 sys.path.append(experiment_realtime_path)
 from threading import Thread
 
 from pnhandler import PNHandler
 from amp_inlet import get_inlet_amp
-from experiment_record import ExperimentRealtime
+from experiment_realtime import ExperimentRealtime
 from stimulator import Stimulator
 
 
 def mod_config(config):
-    experiment_data_path = Path('experiment_realtime_test.py').resolve()/'test_data/experiment_data.h5'
+    experiment_data_path = Path('experiment_realtime_test.py').resolve().parents[0]/'test_data/experiment_data.h5'
     config['paths']['experiment_data_to_fit_path'] = str(experiment_data_path)
     return config
 
@@ -43,7 +42,8 @@ def start_debug_amp(config):
 def test(config):
     # emulate amplifire lsl
     mod_config(config)
-    start_debug_amp(config)
+    if config['general'].getboolean('debug_mgde'):
+        start_debug_amp(config)
     time.sleep(1.5)
     
     # start pnhandler, active Axis Neuron is needed
@@ -64,7 +64,7 @@ def test(config):
     
 if __name__ == '__main__':
     config = configparser.ConfigParser()
-    config.read('experiment_record_config.ini')
+    config.read('experiment_realtime_config.ini')
     
     test(config)
 

@@ -52,7 +52,8 @@ def start_debug_amp(config):
 def test(config):
     # emulate amplifire lsl
     mod_config(config)
-    start_debug_amp(config)
+    if config['general'].getboolean('debug_mgde'):
+        start_debug_amp(config)
     time.sleep(1.5)
     
     # start pnhandler, active Axis Neuron is needed

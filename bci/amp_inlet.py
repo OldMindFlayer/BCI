@@ -19,3 +19,8 @@ def get_inlet_amp(config):
 
 def printm(m):
     print('{} {}: {}'.format(time.strftime('%H:%M:%S'), 'AmpInlet', m))
+    
+
+if __name__ == '__main__':
+    printm('rrr')
+    printm('bbb')

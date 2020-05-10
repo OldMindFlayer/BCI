@@ -110,8 +110,10 @@ class Stimulator():
         
     # used to estimate latency between pc and arduino
     def recieve_feedbeak(self):
-        self.ser.read()
-        return time.time()
+        while self.ser.in_waiting > 0:
+            b = self.ser.read()
+            print(b[0])
+        #return time.time()
     
     # getters    
     def get_comport(self):

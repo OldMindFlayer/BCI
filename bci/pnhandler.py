@@ -84,6 +84,7 @@ class PNHandler:
 
     def start(self):
         if self._connect_to_PN():
+            self._printm('Stream from PN resolved and straming thread started')
             self.thread.start()
         
     def get_next_chunk_pn(self):
@@ -109,6 +110,7 @@ class PNHandler:
     
     def _connect_to_PN(self):
         try:
+            self._printm('Resolving stream from PN...')
             self.s.connect((self.TCP_IP, self.TCP_PORT))
             return True
         except ConnectionError:
@@ -117,7 +119,6 @@ class PNHandler:
 
 
     def _get_data(self):
-        self._printm('Start receiving data from PN and put it into buffer_pn')
         start_time = time.time()
         string_buffer = ''
         while True:

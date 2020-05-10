@@ -14,31 +14,31 @@ def config_init(argv):
     config = configparser.ConfigParser()
     config.read('config.ini')
     
-    # parse arguments 
-    if '-debug' in argv:
-        config['general']['debug_mode'] = 'true'
-    else:
-        config['general']['debug_mode'] = 'false'
-
+    # parse arguments of main.py
+    parse_argv(config, argv)
     
-    # Path autogeneration ignores path in config and generate path based on location of 'main.py'
-    if config['general'].getboolean('path_autogeneration'):
-        if len(Path('main.py').resolve().parents) >= 3:
-            config['paths']['root_path'] = str(Path('main.py').resolve().parents[2])
-        else:
-            config['paths']['root_path'] = str(Path('main.py').resolve().parents[1]) 
+    # create base root path for path autogeneration or in case of path errors
+    # variable root_path will have Path object to the root
+    if len(Path('main.py').resolve().parents) >= 3:
+        root_path_base = Path('main.py').resolve().parents[2]
+    else:
+        root_path_base = Path('main.py').resolve().parents[2]
+    
+    if config['paths'].getboolean('path_autogeneration'):
+        config['paths']['root_path'] = str(root_path_base)
+        root_path = root_path_base
+    else:
+        try:
+            root_path = Path(config['paths']['root_path'])
+        except:
+            printm('can\'t parse root path from config, base root path:\n{}'.format(str(root_path_base)))
+            config['paths']['root_path'] = str(root_path_base)
+            root_path = root_path_base
         
     # Date and time autogeneration ignores values in config and generate them based on current date and time
-    if  config['general'].getboolean('experiment_date_and_time_autogeneration'):
+    if  config['paths'].getboolean('experiment_date_and_time_autogeneration'):
         config['patient_info']['patient_date'] = time.strftime('%y%m%d')
         config['patient_info']['patient_time'] = time.strftime('%H%M%S')
-    
-    
-    # get parts of paths from config file
-    root_path = Path(config['paths']['root_path'])
-    patient_name = config['patient_info']['patient_name']
-    patient_date = config['patient_info']['patient_date']
-    patient_time = config['patient_info']['patient_time']
     
     # create Path objects for 'experiment_data' and 'results' directories
     patient_path = root_path/'BCIData'/(config['patient_info']['patient_date'] + '_' + \
@@ -53,19 +53,15 @@ def config_init(argv):
     config['paths']['patient_path'] = str(patient_path)
     config['paths']['results_path'] = str(results_path)
     if config['general'].getboolean('debug_mode'):
+        # add path to the debug lsl generator
         config['paths']['lsl_stream_generator_path'] = str(root_path/'nfb/')
     
     if config['general'].getboolean('record_enable'):
         config['paths']['experiment_data_path'] = str(experiment_data_path)
         config['paths']['experiment_data_to_fit_path'] = config['paths']['experiment_data_path']
     else:
-        config['paths']['experiment_data_path'] = None
-    
-    #config['record']['record'] = config['general']['record_enable']
-    #config['realtime']['realtime'] = config['general']['realtime_enable']
-    #config['stimulation']['stimulation'] = config['general']['stimulation_enable']
+        config['paths']['experiment_data_path'] = 'None'
 
-        
     # save result into global config file and local config file    
     with open('config.ini', 'w') as configfile:
         config.write(configfile)
@@ -73,6 +69,41 @@ def config_init(argv):
         config.write(configfile)
         
     return config
+
+def parse_argv(config, argv):
+    # debug mode, uses lsl generator instead if amplifier data
+    if '-debug' in argv:
+        config['general']['debug_mode'] = 'true'
+    else:
+        config['general']['debug_mode'] = 'false'
+        
+    # record mode, only records data and saves it
+    # realtime mode, only fits existing data from 'experiment_data_to_fit_path' and runs realtime experiment
+    # default mode, records data, fits it and runs realtime experiment
+    # without arguments - tries to use parameters from config.ini, if can't - default mode
+    if '-record' in argv:
+        config['general']['record_enable'] = 'true'
+        config['general']['realtime_enable'] = 'false'
+    elif '-realtime' in argv:
+        config['general']['record_enable'] = 'false'
+        config['general']['realtime_enable'] = 'true'
+    elif '-default' in argv:
+        config['general']['record_enable'] = 'true'
+        config['general']['realtime_enable'] = 'true'
+    else:
+        if type(config['general'].getboolean('record_enable')) is not bool or \
+            type(config['general'].getboolean('realtime_enable')) is not bool:
+            config['general']['record_enable'] = 'true'
+            config['general']['realtime_enable'] = 'true'
+            
+    
+        
+        
+
+def printm(m):
+    print('{} {}: {}'.format(time.strftime('%H:%M:%S'), 'Config', m))
+    
+
 
 if __name__ == '__main__':
     config_init([])

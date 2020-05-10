@@ -19,11 +19,19 @@ def refresh_avatar_parameters():
     var_values = {}
     handle = winreg.OpenKeyEx(winreg.HKEY_CURRENT_USER, 'Software\\Neuro\\VirtualArm')
     for key, name in var_names.items():
-        var_values[key] = float(winreg.QueryValueEx(handle, name)[0].decode()[:-1])
+        value = winreg.QueryValueEx(handle, name)[0].decode()[:-1]
+        comma = value.find(',')
+        if comma == len(value) - 1:
+            value = 0
+        elif comma != -1:
+            value = value[:comma] + '.' + value[comma+1:]
+        var_values[key] = float(value)
     return var_values
 
 
 
 
 if __name__ == '__main__':    
-    refresh_avatar_parameters()
+    param = refresh_avatar_parameters()
+    for k, v in param.items():
+        print(k, v, type(v))
