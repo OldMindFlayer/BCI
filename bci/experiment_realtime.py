@@ -49,6 +49,7 @@ class ExperimentRealtime():
         
         # PN channels for finger joints
         self.pn_fingers_range = np.asarray(list(map(int, self.config['avatar']['pn_fingers_coords'].split())))
+        
         # avatar channels for finger joints
         self.avatar_fingers_range = np.asarray(list(map(int, self.config['avatar']['avatar_fingers_coords'].split())))
         
@@ -99,7 +100,7 @@ class ExperimentRealtime():
         
         # initialize pn_buffer and KalmanCoords
         pn_buffer = np.zeros(len(self.pn_fingers_range))
-        KalmanCoords = np.zeros((1, self.numCh))
+        KalmanCoords = np.zeros((1, len(self.pn_fingers_range)))
         
         # get chunks, decode and sent to avatar
         start_time = time.time()
@@ -124,7 +125,7 @@ class ExperimentRealtime():
                 WienerCoords, KalmanCoords = self._process_chunk_amp(chunk_amp)    
             
             # get predictions and factual result and send them to avatar
-            prediction = KalmanCoords[-1,:len(self.pn_fingers_range)]   
+            prediction = KalmanCoords[-1,:len(self.pn_fingers_range)]
             fact = np.copy(pn_buffer)
             self.coordbuff.append((prediction, fact))
             
@@ -180,8 +181,7 @@ class ExperimentRealtime():
         self.avatar_parameters = refresh_avatar_parameters()
         fact[0] = fact[0] *self.avatar_scalar_thumb + self.avatar_bias_thumb - 18
         prediction[0] = prediction[0] *self.avatar_scalar_thumb + self.avatar_bias_thumb - 18
-                
-        
+    
         if self.key:
             self.avatar_buffer[self.avatar_fingers_range] = prediction
         else:
