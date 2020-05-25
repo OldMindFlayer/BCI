@@ -10,9 +10,10 @@ import configparser
 from pathlib import Path
 import sys
 from os import makedirs
-experiment_record_path = str(Path('pnhandler_test.py').resolve().parents[1]/'bci/')
+experiment_record_path = str(Path('experiment_record_test.py').resolve().parents[1]/'bci/')
 sys.path.append(experiment_record_path)
 from threading import Thread
+import h5py
 
 from pnhandler import PNHandler
 from amp_inlet import get_inlet_amp
@@ -21,16 +22,17 @@ from experiment_record import ExperimentRecord
 # function that create directories for the recording data 
 # and add paths to the data and to the lsl generator
 def mod_config(config):
-    root_path = Path('pnhandler_test.py').resolve().parents[2]
+    root_path = Path('experiment_record_test.py').resolve().parents[2]
     config['paths']['root_path'] = str(root_path)
     patient_date = time.strftime('%y_%m_%d')
     patient_time = time.strftime('%H%M%S')
     patient_path = root_path/'BCIData'/(patient_date + '_' + patient_time + '_' + 'Test')
-    experiment_data_path = patient_path/'experiment_data.h5'
+    experiment_data_path = patient_path/'train_data.h5'
     results_path = patient_path/'results'
     makedirs(results_path, exist_ok=True)
-    config['paths']['experiment_data_path'] = str(experiment_data_path)
+    config['paths']['train_data_path'] = str(experiment_data_path)
     config['paths']['lsl_stream_generator_path'] = str(root_path/'nfb/')
+    print(config['paths']['lsl_stream_generator_path'])
     return config
 
 # start generate lsl like it is from amplifier
@@ -52,7 +54,7 @@ def start_debug_amp(config):
 def test(config):
     # emulate amplifire lsl
     mod_config(config)
-    if config['general'].getboolean('debug_mgde'):
+    if config['general'].getboolean('debug_mode'):
         start_debug_amp(config)
     time.sleep(1.5)
     
@@ -65,6 +67,12 @@ def test(config):
     # test ExperimentRecord class and it's record_data method
     experiment_record = ExperimentRecord(config, pnhandler, inlet_amp)
     experiment_record.record_data()
+    
+    print(config['paths']['train_data_path'])
+    with h5py.File(config['paths']['train_data_path'],'r+') as file:
+        for dataset in file.keys():
+            print(dataset)
+            #print(file[dataset])
     
     
 if __name__ == '__main__':

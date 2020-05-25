@@ -44,23 +44,26 @@ def config_init(argv):
     patient_path = root_path/'BCIData'/(config['patient_info']['patient_date'] + '_' + \
                                         config['patient_info']['patient_time'] + '_' + \
                                         config['patient_info']['patient_name'])
-    experiment_data_path = patient_path/'experiment_data.h5'
+    train_data_path = patient_path/'train_data.h5'
     results_path = patient_path/'results'
+    realtime_data_path = results_path/'realtime_data.h5'
     # create directories
     makedirs(results_path, exist_ok=True)
     
     # Create directory stucture for experiment and update config with 'patient_data_path'
     config['paths']['patient_path'] = str(patient_path)
     config['paths']['results_path'] = str(results_path)
+    config['paths']['realtime_data_path'] = str(realtime_data_path)
     if config['general'].getboolean('debug_mode'):
         # add path to the debug lsl generator
         config['paths']['lsl_stream_generator_path'] = str(root_path/'nfb/')
     
+    
     if config['general'].getboolean('record_enable'):
-        config['paths']['experiment_data_path'] = str(experiment_data_path)
-        config['paths']['experiment_data_to_fit_path'] = config['paths']['experiment_data_path']
+        config['paths']['train_data_path'] = str(train_data_path)
+        config['paths']['train_data_to_fit_path'] = config['paths']['train_data_path']
     else:
-        config['paths']['experiment_data_path'] = 'None'
+        config['paths']['train_data_path'] = 'None'
 
     # save result into global config file and local config file    
     with open('config.ini', 'w') as configfile:

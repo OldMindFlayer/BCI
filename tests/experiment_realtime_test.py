@@ -19,8 +19,12 @@ from stimulator import Stimulator
 
 
 def mod_config(config):
-    experiment_data_path = Path('experiment_realtime_test.py').resolve().parents[0]/'test_data/experiment_data.h5'
-    config['paths']['experiment_data_to_fit_path'] = str(experiment_data_path)
+    root_path = Path('experiment_realtime_test.py').resolve().parents[2]
+    train_data_path = Path('experiment_realtime_test.py').resolve().parents[0]/'test_data/train_data.h5'
+    realtime_data_path = Path('experiment_realtime_test.py').resolve().parents[0]/'test_data/results/realtime_data.h5'
+    config['paths']['realtime_data_path'] = str(realtime_data_path)
+    config['paths']['train_data_to_fit_path'] = str(train_data_path)
+    config['paths']['lsl_stream_generator_path'] = str(root_path/'nfb/')
     return config
 
 # start generate lsl like it is from amplifier
@@ -42,7 +46,7 @@ def start_debug_amp(config):
 def test(config):
     # emulate amplifire lsl
     mod_config(config)
-    if config['general'].getboolean('debug_mgde'):
+    if config['general'].getboolean('debug_mode'):
         start_debug_amp(config)
     time.sleep(1.5)
     

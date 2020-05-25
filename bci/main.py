@@ -58,7 +58,7 @@ def main():
         experiment_realtime.fit()
         experiment_realtime.decode()
     finally:
-        
+        #experiment_realtime.stop()
         stimulator.close_connection()
 
     

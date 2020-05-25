@@ -21,9 +21,9 @@ def test(config):
     
     # stimulate from electrode 1 to electrode 2
     
-    stimulator.configurate(2, 3)
+    stimulator.configurate(1, 2)
     time.sleep(1)
-    #stimulator.recieve_feedbeak()
+    stimulator.recieve_feedbeak()
     #stimulator.stimulate(2500, 1)
     #for i in range(20):
     #    stimulator.stimulate(i*10, 1)

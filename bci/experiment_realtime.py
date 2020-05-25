@@ -9,12 +9,15 @@ import time
 import socket
 import struct
 import numpy as np
-from pynput import keyboard
+from queue import Queue
+from pynput.keyboard import Listener
+
 
 from emg.EMGdecode import EMGDecoder
 from emg.EMGfilter import envelopeFilter
 from parameters_avatar import refresh_avatar_parameters
-
+from keyboard_handler import keyboard_on_press, keyboard_on_release
+from recorder import Recorder
 
 class ExperimentRealtime():
     def __init__(self, config, pnhandler, inlet_amp, stimulator = None):
@@ -25,12 +28,16 @@ class ExperimentRealtime():
         self.pnhandler = pnhandler
         self.inlet_amp = inlet_amp
         self.stimulator = stimulator
+        self.recorder = Recorder(self.config, prediction = True)
         self.decoder = None
         self.filter = None
     
         
         # params of amp data stream
         self.numCh = self.config['amp_config'].getint('n_channels_amp')
+        # if feedback, last channel is stimulation data
+        if self.config['amp_config'].getboolean('feedback'):
+            self.numCh -= 1
         self.offCh = self.numCh
         self.srate = self.config['amp_config'].getint('fs_amp')
 
@@ -63,33 +70,38 @@ class ExperimentRealtime():
         self.sock.bind(self.server_address)
         self._printm('UDP from {} {} established'.format(*self.server_address))
         
+        # get parameters of stimulation and setup redractory period
         self.stimulator.configurate(self.config['stimulation'].getint('electrode_start'),
                                     self.config['stimulation'].getint('electrode_stop'))
-        
         self.stimulation_time = self.config['stimulation'].getint('stimulation_time')
         self.refractory_time = self.config['stimulation'].getint('refractory_time')
         self.refractory_start = 0
         self.avatar_bias_thumb = self.config['avatar'].getint('avatar_bias_thumb')
         self.avatar_scalar_thumb = self.config['avatar'].getfloat('avatar_scalar_thumb')
+        self.avatar_bias_index = self.config['avatar'].getint('avatar_bias_index')
+        self.avatar_scalar_index = self.config['avatar'].getfloat('avatar_scalar_index')
+
         self.avatar_parameters = refresh_avatar_parameters()
         
-        #control from keyboard
-        self.key = False
-        listener = keyboard.Listener(on_press=self._on_press, on_release=self._on_release)
-        listener.daemon = True
-        listener.start()
+        # control from keyboard
+        self.queue_keyboard = Queue()
+        self.avatar_data_type = False
+        self.realtime_close = False
+        on_press = lambda key: keyboard_on_press(self.queue_keyboard, key)
+        self.listener = Listener(on_press=on_press, on_release=keyboard_on_release)
+        self.listener.start()
 
         
         
     # fit data from file
     def fit(self):
-        self._printm('fitting data from:\n{}'.format(self.config['paths']['experiment_data_to_fit_path']))
+        self._printm('fitting data from:\n{}'.format(self.config['paths']['train_data_to_fit_path']))
         # fit the model from file and initialize filter
         self.decoder = EMGDecoder()
-        self.decoder.fit(X = None, Y = None, 
-                       file=self.config['paths']['experiment_data_to_fit_path'], 
+        self.decoder.fit(X = None, Y = None,
+                       file=self.config['paths']['train_data_to_fit_path'], 
                        numCh = self.numCh, offCh = self.offCh, 
-                       Pn = self.pn_fingers_range, 
+                       pn_channels = self.pn_fingers_range, 
                        lag = 2, forward = 0, downsample = 0)
         self.filter = envelopeFilter()
         
@@ -107,12 +119,19 @@ class ExperimentRealtime():
         counter = 0
         counter_messages = 0
         while (time.time() - start_time < self.experiment_time):
+            # handle keyboard events
+            self._handle_keyboard()
+            # if you press esc - save data and close
+            if self.realtime_close:
+                self.recorder.save_data()
+                return
+            
             cycle_start_time = time.time()
         
             # get chunks of data from inlets
-            chunk_pn, _ = self.pnhandler.get_next_chunk_pn()
-            ampchunk, _ = self.inlet_amp.pull_chunk(max_samples=20)
-            chunk_amp = np.asarray(ampchunk)
+            chunk_pn, timestamp_pn = self.pnhandler.get_next_chunk_pn()
+            ampchunk, amptimestemp = self.inlet_amp.pull_chunk(max_samples=20)
+            chunk_amp, timestamp_amp = np.asarray(ampchunk), np.asarray(amptimestemp)
         
             # process chunks, if no chunks - previous data will be used
             if chunk_pn is not None:
@@ -122,27 +141,31 @@ class ExperimentRealtime():
                 
             if chunk_amp.shape[0] > 0:
                 counter += chunk_amp.shape[0]
-                WienerCoords, KalmanCoords = self._process_chunk_amp(chunk_amp)    
+                WienerCoords, KalmanCoords = self._process_chunk_amp(chunk_amp)
+            else:
+                self._printm('empty amp chunk encountered')
             
             # get predictions and factual result and send them to avatar
             prediction = KalmanCoords[-1,:len(self.pn_fingers_range)]
             fact = np.copy(pn_buffer)
             self.coordbuff.append((prediction, fact))
             
-            if self.key:
-                to_stimulate = (- self.avatar_scalar_thumb*prediction[0] - self.avatar_bias_thumb - self.avatar_parameters['ExplosionAngle'] < 0) and (- prediction[1] > self.avatar_parameters['MaxIndexAngleMale'])
-                if self.stimulator is not None and to_stimulate:
-                    self._stimulate()    
+            if self.avatar_data_type :
+                thumb_coord, index_coord = prediction[0], prediction[1]
             else:
-                #print((- self.avatar_scalar_thumb*fact[0] - self.avatar_bias_thumb - self.avatar_parameters['ExplosionAngle']), - fact[1])
-                to_stimulate = (- self.avatar_scalar_thumb*fact[0] - self.avatar_bias_thumb - self.avatar_parameters['ExplosionAngle'] < 0) and (- fact[1] > self.avatar_parameters['MaxIndexAngleMale'])
-                if self.stimulator is not None and to_stimulate:
-                    self._stimulate()
+                thumb_coord, index_coord = fact[0], fact[1]
+            
+            thumb_angle = - self.avatar_scalar_thumb*thumb_coord - self.avatar_bias_thumb - 55
+            index_angle = - self.avatar_scalar_index*index_coord + self.avatar_bias_index
+            #print(thumb_angle, index_angle)
+            if self.stimulator is not None and (thumb_angle < 0) and (index_angle > self.avatar_parameters['MaxIndexAngleMale']):
+                self._stimulate()
                 
             
             self._send_data_to_avatar(prediction, fact)
+            self.recorder.record_data(chunk_amp, timestamp_amp, chunk_pn, timestamp_pn, prediction)
             
-            # massage to see progress
+            # massege to see progress
             if counter // 10000 > counter_messages:
                 counter_messages += 1
                 self._printm('sent {} samples to avatar'.format(counter))
@@ -156,11 +179,18 @@ class ExperimentRealtime():
                                                                                                        chunk_amp.shape, 
                                                                                                        difference_time))
                 self._printm('Kalman decoding time: {}'.format(self.kalman_time))
-    
+        
+        # save realtime data
+        self.recorder.save_data()
+        
     
     def get_coordbuff(self):
         return self.coordbuff
     
+    
+    
+    def close(self):
+        self.listener.stop()
     
     
     def _process_chunk_pn(self, chunk_pn, pn_buffer):
@@ -179,18 +209,20 @@ class ExperimentRealtime():
         
     def _send_data_to_avatar(self, prediction, fact):
         self.avatar_parameters = refresh_avatar_parameters()
-        fact[0] = fact[0] *self.avatar_scalar_thumb + self.avatar_bias_thumb - 18
-        prediction[0] = prediction[0] *self.avatar_scalar_thumb + self.avatar_bias_thumb - 18
+        fact[0] = fact[0] *self.avatar_scalar_thumb + self.avatar_bias_thumb
+        fact[1] = fact[1] *self.avatar_scalar_index - self.avatar_bias_index
+        
+        prediction[0] = prediction[0] *self.avatar_scalar_thumb + self.avatar_bias_thumb
+        prediction[1] = prediction[1] *self.avatar_scalar_index - self.avatar_bias_index
     
-        if self.key:
+    
+        if self.avatar_data_type:
             self.avatar_buffer[self.avatar_fingers_range] = prediction
         else:
             self.avatar_buffer[self.avatar_fingers_range] = fact
         
-        
-        
         self.avatar_buffer[self.avatar_fingers_range + self.avatar_buffer_size//2] = prediction
-        
+        #print(self.avatar_buffer)
         data = struct.pack('%df' % len(self.avatar_buffer), *list(map(float, self.avatar_buffer)))
         self.sock.sendto(data, self.client_address)
         
@@ -198,20 +230,16 @@ class ExperimentRealtime():
         if (time.time() - self.refractory_start)*1000 >= self.refractory_time:
             self.stimulator.stimulate(self.stimulation_time, 1)
             self.refractory_start = time.time()
+    
+    # helper to parse all commands from keyboard
+    def _handle_keyboard(self):
+        while not self.queue_keyboard.empty():
+            k, _ = self.queue_keyboard.get()
+            if k == 'realtime_close':
+                self.realtime_close = not self.realtime_close
+            elif k == 'avatar_data_type':
+                self.avatar_data_type = not self.avatar_data_type
         
-        
-        
-
-    def _on_press(self, key):
-        try:
-            k = key.char  # single-char keys
-        except:
-            k = key.name  # other keys
-        if k == 't':
-            self.key = not self.key
-
-    def _on_release(self, key):
-        pass
         
     def _printm(self, message):
         print('{} {}: '.format(time.strftime('%H:%M:%S'), type(self).__name__) + message)

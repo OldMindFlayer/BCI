@@ -43,23 +43,22 @@ class EMGDecoder:
         
         self.fitted=True
         
-    def fit(self, X=None,Y=None,file='experiment_data.h5',numCh=64,offCh=64,Pn=[59,77,101,125],lag=2,forward=0,downsample=0):
+    def fit(self, X=None,Y=None,file='experiment_data.h5',numCh=64,offCh=64,pn_channels=[59,77,101,125],lag=2,forward=0,downsample=0):
         self.numCh=numCh
         self.offCh=offCh
-        self.Pn=Pn
         self.lag=lag
         self.forward=forward
         self.downsample=downsample
         
         if type(X)==type(None) or type(Y)==type(None):
            #try and read file then
-           with h5py.File(file,'r+') as f1:
-               raw_data = np.array(f1['protocol1']['raw_data'])
-               Y=raw_data[:,[p+self.offCh for p in Pn]]
-               X=raw_data[:,:self.numCh]
-               del raw_data
+           with h5py.File(file,'r+') as file:
+               Y = np.array(file['data_pn'])[:,pn_channels]
+               X = np.array(file['data_amp'])[:,:self.numCh]
+               
         #get the envelope of EMG data and interpolate PN to EMG samplerate
         X=self.emgFilter.filterEMG(X)
+        print(sum(sum(Y)))
         Y=PNinterpolate.interpolatePN(Y)
         
         def offset(data,lag,leftOffset,rightOffset=0):
