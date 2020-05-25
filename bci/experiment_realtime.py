@@ -139,7 +139,7 @@ class ExperimentRealtime():
             else:
                 self._printm('empty pn chunk encountered')
                 
-            if chunk_amp.shape[0] > 0:
+            if chunk_amp.shape[0] > 3:
                 counter += chunk_amp.shape[0]
                 WienerCoords, KalmanCoords = self._process_chunk_amp(chunk_amp)
             else:

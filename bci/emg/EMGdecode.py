@@ -53,27 +53,37 @@ class EMGDecoder:
         if type(X)==type(None) or type(Y)==type(None):
            #try and read file then
            with h5py.File(file,'r+') as file:
-               Y = np.array(file['data_pn'])[:,pn_channels]
+               # X is first n_channels (columns) of amplifier data
                X = np.array(file['data_amp'])[:,:self.numCh]
+               # Y is colummns of pn data corresponding to finger movements
+               Y = np.array(file['data_pn'])[:, pn_channels]
                
-        #get the envelope of EMG data and interpolate PN to EMG samplerate
+        # get the envelope of EMG data and interpolate PN to EMG samplerate
         X=self.emgFilter.filterEMG(X)
-        print(sum(sum(Y)))
-        Y=PNinterpolate.interpolatePN(Y)
+        # Y was already interpolated in recording
+        #Y = PNinterpolate.interpolatePN(Y)
         
-        def offset(data,lag,leftOffset,rightOffset=0):
-            return data[leftOffset+lag:data.shape[0]-rightOffset]
+        # helper function to remove (leftOffset + lag) first and (rightOffset) last rows (or other first dimention)
+        def offset(data, lag, leftOffset, rightOffset=0):
+            return data[leftOffset + lag: data.shape[0] - rightOffset]
 
-        emg_lag=np.empty((X.shape[0]-2-self.lag-self.forward,numCh*(self.lag+1)));
+        # empty emg_lag dith default shape (m-4, n*3)
+        emg_lag = np.empty((X.shape[0]-2-self.lag-self.forward,numCh*(self.lag+1)));
+        
+        # write into emg_lag matrix multiple copies of data from X
         for l in range(self.lag+1):
             emg_lag[:,l*numCh:(l+1)*numCh]=X[(2+l):(X.shape[0]-self.lag-self.forward+l),:]
-        
-        Coord=np.copy(Y)
 
+                
+        Coord=np.copy(Y)
+        
+        # velocity is the first difference of coordinates
         Vel=np.apply_along_axis(np.diff,0,Coord)
         
+        # acceleration is the second difference of coordinates
         Acc=np.apply_along_axis(np.diff,0,Vel)
-            
+        
+        # stack horizontally coords, velocity and acceleration 
         Coords=np.hstack((np.apply_along_axis(offset,0,Coord,self.lag,2),np.apply_along_axis(offset,0,Vel,self.lag,1),np.apply_along_axis(offset,0,Acc,self.lag,0)))
         
         EMG_signals=np.hstack((np.ones((emg_lag.shape[0],1)),emg_lag));
