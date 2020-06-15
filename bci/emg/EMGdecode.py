@@ -90,6 +90,7 @@ class EMGDecoder:
         self.W = np.linalg.pinv(EMG_signals) 
         self.W = self.W @ Coords
 
+        # least squer error 
         Measurement_Error=Coords-EMG_signals @ self.W;
         Measurement_Error_Covar=np.cov(Measurement_Error.T);
         self.W = self.W.T;

@@ -12,6 +12,7 @@ import time
 import h5py
 import numpy as np
 from scipy.interpolate import interp1d
+from emg.PNinterpolate import interpolatePN
 
 
 class Recorder():
@@ -87,8 +88,13 @@ class Recorder():
     
     
     
-    
     def _intrapolate(self, data):
+        return interpolatePN(data)
+    
+    
+    
+    
+    def _intrapolate1(self, data):
         nans = np.isnan(data[:,0])
         nan_indices = nans.nonzero()[0]
         not_nan_indices = (~nans).nonzero()[0]
